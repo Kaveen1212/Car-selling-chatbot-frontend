@@ -24,11 +24,16 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
-  type?: "text" | "card" | "map";
+  type?: "text" | "card" | "map" | "image";
   cardData?: CarData;
   allCards?: CarData[];
   currentCardIndex?: number;
   locationData?: LocationData;
+  imageData?: {
+    images: string[];
+    vehicleName: string;
+    aspectRatio?: "9:16" | "16:9" | "auto";
+  };
 }
 
 export interface NavItem {
@@ -40,4 +45,5 @@ export interface NavItem {
 export interface RecentChat {
   id: string;
   title: string;
+  messages: Message[];
 }

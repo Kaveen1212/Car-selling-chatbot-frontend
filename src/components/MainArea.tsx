@@ -1,20 +1,76 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Message } from "../types";
 import MessageList from "./MessageList";
 import ChatInput from "./ChatInput";
-import EmptyState from "./EmptyState";
 
 interface MainAreaProps {
-  initialMessages: Message[];
-  onChatStart?: () => void;
+  messages: Message[];
+  onMessagesChange: (messages: Message[]) => void;
 }
 
-export default function MainArea({ initialMessages, onChatStart }: MainAreaProps) {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+interface UploadedFile {
+  file: File;
+  preview?: string;
+}
+
+export default function MainArea({ messages, onMessagesChange }: MainAreaProps) {
   const [inputValue, setInputValue] = useState("");
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+
+      // Create preview URL for images
+      if (file.type.startsWith('image/')) {
+        const previewUrl = URL.createObjectURL(file);
+        setUploadedFiles(prev => [...prev, { file, preview: previewUrl }]);
+      } else {
+        setUploadedFiles(prev => [...prev, { file }]);
+      }
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setUploadedFiles(prev => {
+      const newFiles = [...prev];
+      // Revoke the preview URL to free memory
+      if (newFiles[index].preview) {
+        URL.revokeObjectURL(newFiles[index].preview!);
+      }
+      newFiles.splice(index, 1);
+      return newFiles;
+    });
+  };
+
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const textarea = e.target;
+    setInputValue(textarea.value);
+
+    // Reset height to auto to get the correct scrollHeight
+    textarea.style.height = 'auto';
+
+    // Calculate line height (24px per line)
+    const lineHeight = 24;
+    const minHeight = 84; // Normal starting height
+    const maxLines = 16;
+    const maxHeight = lineHeight * maxLines;
+
+    // Set height based on content, but maintain minimum of 84px and cap at max height
+    const newHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight));
+    textarea.style.height = `${newHeight}px`;
+  };
 
   const handleSubmit = () => {
     if (!inputValue.trim()) return;
+
+    // Reset textarea height after submit
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '84px';
+    }
 
     const newMessage: Message = {
       id: Date.now().toString(),
@@ -22,13 +78,16 @@ export default function MainArea({ initialMessages, onChatStart }: MainAreaProps
       content: inputValue,
     };
 
-    setMessages([...messages, newMessage]);
+    onMessagesChange([...messages, newMessage]);
     setInputValue("");
 
-    // Notify parent that chat has started (first message)
-    if (messages.length === 0 && onChatStart) {
-      onChatStart();
-    }
+    // Clear uploaded files after submit
+    uploadedFiles.forEach(file => {
+      if (file.preview) {
+        URL.revokeObjectURL(file.preview);
+      }
+    });
+    setUploadedFiles([]);
 
     // Add hardcoded assistant response
     setTimeout(() => {
@@ -93,7 +152,8 @@ export default function MainArea({ initialMessages, onChatStart }: MainAreaProps
           currentCardIndex: 0,
           cardData: allCars[0]
         };
-        setMessages((prevMessages) => [...prevMessages, carCardMessage]);
+
+        onMessagesChange([...messages, newMessage, carCardMessage]);
       } else if (userInput === "shipping" || userInput.includes("ship") || userInput.includes("location") || userInput.includes("deliver")) {
         // Show shipping location map
         const mapMessage: Message = {
@@ -111,14 +171,37 @@ export default function MainArea({ initialMessages, onChatStart }: MainAreaProps
             shippingInfo: "We ship from our Los Angeles distribution center to all 50 states. Standard shipping takes 5-7 business days. Express shipping (2-3 days) is available for an additional fee. Free shipping on orders over $50."
           }
         };
-        setMessages((prevMessages) => [...prevMessages, mapMessage]);
+
+        onMessagesChange([...messages, newMessage, mapMessage]);
+      } else if (userInput === "image" || userInput.includes("image")) {
+        // Show vehicle images
+        const imageMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: "",
+          type: "image",
+          imageData: {
+            images: [
+              "https://images.unsplash.com/photo-1542282088-fe8426682b8f?w=800&h=600&fit=crop",
+              "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=800&h=600&fit=crop",
+              "https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2?w=800&h=600&fit=crop",
+              "https://images.unsplash.com/photo-1617814076367-b759c7d7e738?w=800&h=600&fit=crop",
+              "https://images.unsplash.com/photo-1580273916550-e323be2ae537?w=800&h=600&fit=crop"
+            ],
+            vehicleName: "Premium Sports Car Collection",
+            aspectRatio: "16:9"
+          }
+        };
+
+        onMessagesChange([...messages, newMessage, imageMessage]);
       } else {
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
           content: "Hello! I'm Claude, your AI assistant. I received your message and I'm here to help. This is a hardcoded response for demonstration purposes.",
         };
-        setMessages((prevMessages) => [...prevMessages, assistantMessage]);
+
+        onMessagesChange([...messages, newMessage, assistantMessage]);
       }
     }, 500);
 
@@ -129,70 +212,143 @@ export default function MainArea({ initialMessages, onChatStart }: MainAreaProps
   const hasMessages = messages.length > 0;
 
   return (
-    <main className="flex-1 flex flex-col bg-bg-100 h-screen overflow-hidden">
+    <main className="flex-1 flex flex-col bg-transparent h-screen overflow-hidden">
       {/* Content area */}
       {!hasMessages ? (
         /* Empty state - input stays centered while typing */
         <>
-          <EmptyState userName="D" />
+          <div className="flex-1 flex flex-col items-center justify-center px-4">
+            <div className="max-w-2xl lg:max-w-2xl xl:max-w-3xl w-full flex flex-col items-center gap-8">
+              {/* Greeting */}
+              <div className="flex items-center justify-center gap-3 flex-shrink-0 self-center">
+                <svg className="w-8 h-8 text-accent-main-100" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2L12.7 4.5L15 3.2L14.3 5.7L17 5.7L15 7.5L17 9.3L14.3 9.3L15 11.8L12.7 10.5L12 13L11.3 10.5L9 11.8L9.7 9.3L7 9.3L9 7.5L7 5.7L9.7 5.7L9 3.2L11.3 4.5L12 2Z"/>
+                  <circle cx="12" cy="17" r="2" />
+                  <circle cx="6" cy="12" r="1.5" />
+                  <circle cx="18" cy="12" r="1.5" />
+                </svg>
+                <h1 className="text-[32px] text-text-100 tracking-tight">
+                  <span className="text-[#c6613f] font-bold">KAVEEN</span>Agent - Your Personal Assistant
+                </h1>
+              </div>
 
-          {/* Centered input - exact match to screenshot */}
-          <div className="px-4 pb-12 flex-shrink-0">
-            <div className="max-w-5xl mx-auto">
-              <div className="relative flex items-center gap-2 bg-bg-300 border border-border-300 rounded-xl px-3 py-2.5 shadow-sm">
-                {/* Left icons */}
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <button
-                    className="w-8 h-8 rounded-md hover:bg-bg-200 flex items-center justify-center text-text-300 hover:text-text-100 transition-colors"
-                    aria-label="Add"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                  </button>
-                  
-                  
+              {/* Centered input */}
+              <div className="w-full flex-grow-0">
+                <div className="relative flex items-end gap-2 bg-bg-300 border border-border-300 rounded-xl px-3 py-2.5 shadow-sm">
+                  {/* Left icons */}
+                  <div className="flex items-center gap-1 flex-shrink-0 self-end">
+                    {/* Hidden file input */}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      accept=".pdf,.doc,.docx,.txt,.csv,.xlsx,.xls,.png,.jpg,.jpeg,.gif"
+                    />
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-8 h-8 rounded-md hover:bg-bg-200 flex items-center justify-center text-text-300 hover:text-text-100 transition-colors"
+                      aria-label="Upload document"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* Textarea */}
+                  <textarea
+                    ref={textareaRef}
+                    value={inputValue}
+                    onChange={handleTextareaChange}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSubmit();
+                      }
+                    }}
+                    placeholder="How can I help you today?"
+                    className="flex-1 bg-transparent text-text-100 text-sm placeholder:text-text-400 -ml-8 resize-none outline-none min-h-[84px] max-h-[384px] leading-6 overflow-y-auto"
+                    rows={1}
+                    style={{ height: '84px' }}
+                  />
+
+                  {/* Right side buttons */}
+                  <div className="flex items-center gap-2 flex-shrink-0 self-end">
+
+                    {/* Send button */}
+                    <button
+                      onClick={handleSubmit}
+                      disabled={!inputValue.trim()}
+                      className="w-8 h-8 rounded-md bg-[#c6613f] hover:bg-[#df5b2f] disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition-all active:scale-95"
+                      aria-label="Send message"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
 
-                {/* Textarea */}
-                <textarea
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSubmit();
-                    }
-                  }}
-                  placeholder="How can I help you today?"
-                  className="flex-1 bg-transparent text-text-100 text-sm placeholder:text-text-400 resize-none outline-none h-[24px] leading-6"
-                  rows={1}
-                />
-
-                {/* Right side buttons */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {/* Model selector */}
-                  <button className="flex items-center gap-1 px-2 h-8 rounded-md hover:bg-bg-200 text-text-200 hover:text-text-100 text-sm transition-colors">
-                    <span>Sonnet 4.5</span>
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-
-                  {/* Send button */}
-                  <button
-                    onClick={handleSubmit}
-                    disabled={!inputValue.trim()}
-                    className="w-8 h-8 rounded-md bg-accent-main-100 hover:bg-accent-main-200 disabled:opacity-40 disabled:cursor-not-allowed text-text-000 flex items-center justify-center transition-all active:scale-95"
-                    aria-label="Send message"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                    </svg>
-                  </button>
-                </div>
+                {/* Uploaded files preview */}
+                {uploadedFiles.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {uploadedFiles.map((uploadedFile, index) => (
+                      <div
+                        key={index}
+                        className="relative group bg-bg-200 border border-border-300 rounded-lg overflow-hidden"
+                      >
+                        {uploadedFile.preview ? (
+                          // Image preview
+                          <div className="relative w-24 h-24">
+                            <img
+                              src={uploadedFile.preview}
+                              alt={uploadedFile.file.name}
+                              className="w-full h-full object-cover"
+                            />
+                            <button
+                              onClick={() => removeFile(index)}
+                              className="absolute top-1 right-1 w-5 h-5 bg-bg-100 hover:bg-bg-300 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              aria-label="Remove file"
+                            >
+                              <svg className="w-3 h-3 text-text-100" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        ) : (
+                          // Document preview
+                          <div className="relative w-24 h-24 flex flex-col items-center justify-center p-2">
+                            <svg className="w-8 h-8 text-text-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span className="text-xs text-text-300 mt-1 text-center truncate w-full">
+                              {uploadedFile.file.name}
+                            </span>
+                            <button
+                              onClick={() => removeFile(index)}
+                              className="absolute top-1 right-1 w-5 h-5 bg-bg-100 hover:bg-bg-300 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              aria-label="Remove file"
+                            >
+                              <svg className="w-3 h-3 text-text-100" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
+          </div>
+
+          {/* Disclaimer at bottom */}
+          <div className="pb-4">
+            <p className="text-xs text-text-400 text-center">
+              <span className="text-[#c6613f] font-bold">KAVEEN</span>Agent can make mistakes. Please double-check responses.
+            </p>
           </div>
         </>
       ) : (
