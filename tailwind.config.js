@@ -6,6 +6,9 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['"Host Grotesk"', 'sans-serif'],
+      },
       colors: {
         // Background colors - from darkest to lightest
         bg: {
